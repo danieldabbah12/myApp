@@ -316,8 +316,8 @@ else:
     probs = st.session_state["probs"]
 
     # סיווג: אם הסתברות "תקין" > 55% → שפיר, אחרת → לא תקין
-    prob_healthy = float(probs[0])   # [תקין, חשוד, ממאיר]
-    prob_concern = float(probs[1]) + float(probs[2])  # חשוד + ממאיר
+    prob_healthy = float(probs[0]) -10  # [תקין, חשוד, ממאיר]
+    prob_concern = float(probs[1]) + float(probs[2]) +10 # חשוד + ממאיר
 
     is_healthy = prob_healthy > 0.45
 
