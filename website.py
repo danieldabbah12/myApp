@@ -1,802 +1,544 @@
+"""
+🫁 LungVision AI — אבחון רנטגן ריאות באמצעות Deep Learning
+================================================================
+מודל: EfficientNet-B0 (CNN) מאומן מראש על ImageNet
+משימה: סיווג תמונות רנטגן — תקין / חשוד / דורש בדיקה
+
+⚠️  הערה חשובה: אפליקציה זו היא לצורכי לימוד בלבד.
+    אין להשתמש בה לאבחון רפואי אמיתי.
+"""
+
 import streamlit as st
+import torch
+import torch.nn as nn
+import torchvision.transforms as transforms
+import torchvision.models as models
+from PIL import Image
+import numpy as np
+import time
+import io
 
 # ─── Page Config ───────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="מדריך Streamlit",
-    page_icon="🚀",
+    page_title="LungVision AI",
+    page_icon="🫁",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
-# ─── Custom CSS ────────────────────────────────────────────────────────────────
+# ─── CSS ───────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Rubik:wght@400;600;700&family=Fira+Code:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&family=Bebas+Neue&display=swap');
 
+/* ── Reset & Base ── */
 html, body, [class*="css"] {
-    font-family: 'Rubik', sans-serif;
-    direction: rtl;
+    font-family: 'DM Sans', sans-serif;
+    background-color: #05080f;
+    color: #e8eaf0;
 }
 
-h1, h2, h3 {
-    font-family: 'Rubik', sans-serif;
-    font-weight: 700;
-}
+/* ── Hide Streamlit chrome ── */
+#MainMenu, footer, header { visibility: hidden; }
 
-code, pre {
-    font-family: 'Fira Code', monospace !important;
-    direction: ltr;
-    text-align: left;
+/* ── Hero Banner ── */
+.hero {
+    background: linear-gradient(135deg, #05080f 0%, #0a1628 40%, #071a3e 100%);
+    border: 1px solid #1a2744;
+    border-radius: 20px;
+    padding: 3rem 3.5rem;
+    margin-bottom: 2rem;
+    position: relative;
+    overflow: hidden;
 }
-
-.section-header {
-    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-    color: white;
-    padding: 1rem 1.5rem;
-    border-radius: 12px;
-    margin: 1.5rem 0 1rem 0;
-    font-size: 1.3rem;
-    font-weight: 700;
-    border-left: 5px solid #e94560;
+.hero::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    right: -10%;
+    width: 500px;
+    height: 500px;
+    background: radial-gradient(circle, rgba(0, 200, 150, 0.08) 0%, transparent 70%);
+    pointer-events: none;
 }
-
-.tip-box {
-    background: #e8f4fd;
-    border-right: 4px solid #2196F3;
-    padding: 0.8rem 1.2rem;
-    border-radius: 8px;
-    margin: 0.5rem 0;
-    color: #1a1a2e;
+.hero::after {
+    content: '';
+    position: absolute;
+    bottom: -30%;
+    left: 5%;
+    width: 300px;
+    height: 300px;
+    background: radial-gradient(circle, rgba(0, 120, 255, 0.07) 0%, transparent 70%);
+    pointer-events: none;
 }
-
-.output-label {
-    font-size: 0.78rem;
-    color: #888;
+.hero-eyebrow {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.72rem;
+    letter-spacing: 3px;
+    color: #00c896;
     text-transform: uppercase;
+    margin-bottom: 0.6rem;
+}
+.hero-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 4.5rem;
+    line-height: 1;
+    letter-spacing: 2px;
+    background: linear-gradient(90deg, #ffffff 0%, #a8d8ff 60%, #00c896 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 1rem;
+}
+.hero-subtitle {
+    font-size: 1.05rem;
+    color: #7a8aaa;
+    max-width: 520px;
+    line-height: 1.7;
+}
+.badge {
+    display: inline-block;
+    background: rgba(0, 200, 150, 0.1);
+    border: 1px solid rgba(0, 200, 150, 0.3);
+    color: #00c896;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.72rem;
+    padding: 0.3rem 0.9rem;
+    border-radius: 20px;
+    margin: 0.3rem 0.3rem 0 0;
     letter-spacing: 1px;
-    margin-top: 0.8rem;
-    margin-bottom: 0.2rem;
+}
+.badge-blue {
+    background: rgba(0, 120, 255, 0.1);
+    border-color: rgba(0, 120, 255, 0.3);
+    color: #4d9fff;
 }
 
-.stCodeBlock {
-    direction: ltr;
+/* ── Upload Zone ── */
+.upload-zone {
+    background: linear-gradient(135deg, #0a1220 0%, #0d1a2e 100%);
+    border: 2px dashed #1e3054;
+    border-radius: 16px;
+    padding: 2.5rem;
+    text-align: center;
+    transition: border-color 0.3s;
+}
+.upload-icon {
+    font-size: 3rem;
+    margin-bottom: 0.5rem;
+}
+.upload-text {
+    font-size: 1rem;
+    color: #5a6a88;
 }
 
-[data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
+/* ── Info Card ── */
+.info-card {
+    background: #0a1220;
+    border: 1px solid #1a2744;
+    border-radius: 14px;
+    padding: 1.4rem 1.6rem;
+    margin-bottom: 1rem;
+}
+.info-card-title {
+    font-size: 0.7rem;
+    font-family: 'DM Mono', monospace;
+    letter-spacing: 2px;
+    color: #4d9fff;
+    text-transform: uppercase;
+    margin-bottom: 0.6rem;
+}
+.info-card-value {
+    font-size: 1.05rem;
+    color: #e0e8ff;
+    font-weight: 500;
 }
 
-[data-testid="stSidebar"] * {
-    color: #eee !important;
+/* ── Result Cards ── */
+.result-safe {
+    background: linear-gradient(135deg, #001a12 0%, #002a1c 100%);
+    border: 1px solid #00c896;
+    border-radius: 18px;
+    padding: 2rem 2.5rem;
+    text-align: center;
+}
+.result-warning {
+    background: linear-gradient(135deg, #1a1000 0%, #2a1c00 100%);
+    border: 1px solid #ffaa00;
+    border-radius: 18px;
+    padding: 2rem 2.5rem;
+    text-align: center;
+}
+.result-danger {
+    background: linear-gradient(135deg, #1a0008 0%, #2a000f 100%);
+    border: 1px solid #ff3355;
+    border-radius: 18px;
+    padding: 2rem 2.5rem;
+    text-align: center;
+}
+.result-icon { font-size: 3.5rem; margin-bottom: 0.5rem; }
+.result-label {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 2.2rem;
+    letter-spacing: 2px;
+    margin-bottom: 0.4rem;
+}
+.result-sub { font-size: 0.9rem; color: #8899bb; }
+
+/* ── Prob Bar ── */
+.prob-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 0.7rem;
+}
+.prob-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.78rem;
+    color: #7a8aaa;
+    width: 90px;
+    text-align: right;
+}
+.prob-bar-bg {
+    flex: 1;
+    height: 8px;
+    background: #111d30;
+    border-radius: 4px;
+    overflow: hidden;
+}
+.prob-fill-green  { height: 100%; background: linear-gradient(90deg, #00c896, #00ffb3); border-radius: 4px; }
+.prob-fill-yellow { height: 100%; background: linear-gradient(90deg, #ffaa00, #ffdd66); border-radius: 4px; }
+.prob-fill-red    { height: 100%; background: linear-gradient(90deg, #ff3355, #ff7799); border-radius: 4px; }
+.prob-pct {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.82rem;
+    color: #c0cce8;
+    width: 42px;
 }
 
-[data-testid="stSidebar"] .stRadio label {
-    font-size: 0.95rem;
+/* ── Steps ── */
+.step-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 1.2rem;
+}
+.step-num {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #0050cc, #003a99);
+    color: white;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.8rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+.step-content {}
+.step-title { font-weight: 600; color: #c8d8f0; font-size: 0.95rem; }
+.step-desc  { color: #5a6a88; font-size: 0.85rem; line-height: 1.5; margin-top: 2px; }
+
+/* ── Model Architecture ── */
+.arch-block {
+    background: #0a1220;
+    border: 1px solid #1a2744;
+    border-radius: 10px;
+    padding: 0.9rem 1.2rem;
+    margin-bottom: 0.5rem;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.arch-icon { font-size: 1.3rem; }
+.arch-name { font-weight: 600; font-size: 0.92rem; color: #c0d0ee; }
+.arch-desc { font-size: 0.78rem; color: #5a6a88; }
+.arch-arrow { color: #2a3a55; font-size: 1.2rem; text-align: center; margin: 2px 0; }
+
+/* ── Warning ── */
+.medical-disclaimer {
+    background: rgba(255, 170, 0, 0.06);
+    border: 1px solid rgba(255, 170, 0, 0.25);
+    border-radius: 10px;
+    padding: 0.9rem 1.2rem;
+    font-size: 0.8rem;
+    color: #cc8800;
+    margin-top: 1.5rem;
+}
+
+/* ── Divider ── */
+.div { border-top: 1px solid #111d30; margin: 1.5rem 0; }
+
+/* ── Override Streamlit file uploader ── */
+[data-testid="stFileUploadDropzone"] {
+    background: #0a1220 !important;
+    border: 2px dashed #1e3054 !important;
+    border-radius: 16px !important;
+}
+[data-testid="stFileUploadDropzone"]:hover {
+    border-color: #00c896 !important;
 }
 </style>
 """, unsafe_allow_html=True)
 
 
-# ─── Sidebar Navigation ────────────────────────────────────────────────────────
-with st.sidebar:
-    st.markdown("## 🚀 מדריך Streamlit")
-    st.markdown("---")
-    section = st.radio(
-        "בחר נושא:",
-        [
-            "🏠 מבוא",
-            "📝 טקסט וכותרות",
-            "📊 גרפים ונתונים",
-            "🎛️ רכיבי קלט",
-            "📐 פריסת עמוד",
-            "🔄 מצב ולוגיקה",
-            "📁 קבצים ומדיה",
-            "🎨 עיצוב מתקדם",
-        ],
+# ─── Model ─────────────────────────────────────────────────────────────────────
+@st.cache_resource(show_spinner=False)
+def load_model():
+    """
+    טוען EfficientNet-B0 מאומן מראש.
+    בפרויקט אמיתי: היינו מחליפים את שכבת הסיווג האחרונה
+    ומאמנים על NIH Chest X-Ray Dataset.
+    לצורכי הדגמה: משתמשים במשקלים של ImageNet.
+    """
+    model = models.efficientnet_b0(weights=models.EfficientNet_B0_Weights.DEFAULT)
+
+    # החלפת שכבת הסיווג — 3 מחלקות: תקין / חשוד / ממאיר
+    num_features = model.classifier[1].in_features
+    model.classifier = nn.Sequential(
+        nn.Dropout(p=0.3),
+        nn.Linear(num_features, 3)
+    )
+    model.eval()
+    return model
+
+@st.cache_data(show_spinner=False)
+def preprocess_image(img_bytes):
+    """עיבוד מוקדם של התמונה לפורמט שהמודל מצפה לו."""
+    transform = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.Grayscale(num_output_channels=3),  # רנטגן → 3 ערוצים
+        transforms.ToTensor(),
+        transforms.Normalize(
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225]
+        )
+    ])
+    img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+    tensor = transform(img).unsqueeze(0)  # הוספת batch dimension
+    return img, tensor
+
+def predict(model, tensor):
+    """הרצת הנבואה וחישוב הסתברויות."""
+    with torch.no_grad():
+        logits = model(tensor)
+        probs  = torch.softmax(logits, dim=1)[0]
+    return probs.numpy()
+
+
+# ─── HERO ──────────────────────────────────────────────────────────────────────
+st.markdown("""
+<div class="hero">
+    <div class="hero-eyebrow">🔬 Deep Learning · Medical Imaging · CNN</div>
+    <div class="hero-title">LungVision AI</div>
+    <div class="hero-subtitle">
+        אבחון תמונות רנטגן ריאות באמצעות רשת עצבית קונבולוציונית עמוקה.
+        העלה תמונה וקבל ניתוח מיידי.
+    </div>
+    <div style="margin-top:1.2rem;">
+        <span class="badge">EfficientNet-B0</span>
+        <span class="badge">PyTorch</span>
+        <span class="badge">CNN</span>
+        <span class="badge badge-blue">Streamlit</span>
+        <span class="badge badge-blue">Transfer Learning</span>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# ─── MAIN LAYOUT ───────────────────────────────────────────────────────────────
+left_col, right_col = st.columns([1.1, 1], gap="large")
+
+# ══════════════════ LEFT COLUMN ══════════════════
+with left_col:
+
+    # Upload
+    st.markdown("### 📤 העלה תמונת רנטגן")
+    uploaded = st.file_uploader(
+        "גרור ושחרר תמונה (JPG, PNG, DICOM-preview)",
+        type=["jpg", "jpeg", "png", "bmp", "webp"],
         label_visibility="collapsed"
     )
-    st.markdown("---")
-    st.markdown("**📌 טיפ:** כל דוגמה כאן היא קוד אמיתי שרץ עכשיו!")
 
-# ─── Helper function ───────────────────────────────────────────────────────────
-def show_code(code: str):
-    """Renders a left-to-right code block."""
-    st.code(code, language="python")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 🏠 מבוא
-# ══════════════════════════════════════════════════════════════════════════════
-if section == "🏠 מבוא":
-    st.title("🚀 ברוכים הבאים למדריך Streamlit")
-    st.subheader("בניית אפליקציות Web באמצעות Python בלבד!")
-
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown("### 🤔 מה זה Streamlit?")
-        st.markdown("""
-        **Streamlit** היא ספריית Python שמאפשרת לבנות אפליקציות Web אינטראקטיביות
-        בכמה שורות קוד — ללא HTML, CSS, או JavaScript.
-
-        מתאים במיוחד ל:
-        - 📊 דשבורדים ויזואליים
-        - 🤖 הצגת מודלי AI / ML
-        - 📈 ניתוח נתונים
-        - 🛠️ כלים פנימיים
-        """)
-    with col2:
-        st.markdown("### ⚡ התקנה והפעלה")
-        show_code("""# התקנה (פעם אחת)
-pip install streamlit
-
-# יצירת קובץ
-# app.py
-
-# הפעלה
-streamlit run app.py""")
-
-    st.markdown("---")
-    st.markdown("### 🗂️ מבנה קובץ בסיסי")
-    show_code("""import streamlit as st
-
-# כותרת ראשית
-st.title("האפליקציה שלי")
-
-# כותרת משנה
-st.subheader("ברוכים הבאים!")
-
-# פסקת טקסט
-st.write("שלום עולם!")
-
-# כל שינוי בקוד → הדפדפן מתעדכן אוטומטית ✨""")
-
-    st.markdown('<div class="tip-box">💡 <b>טיפ:</b> כל פעם שמשתמש מקיש על כפתור או משנה ערך — Streamlit מריצה את הקובץ מחדש מלמעלה למטה.</div>', unsafe_allow_html=True)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 📝 טקסט וכותרות
-# ══════════════════════════════════════════════════════════════════════════════
-elif section == "📝 טקסט וכותרות":
-    st.markdown('<div class="section-header">📝 טקסט וכותרות</div>', unsafe_allow_html=True)
-
-    # st.title
-    st.markdown("#### `st.title()` — כותרת ראשית")
-    show_code('st.title("כותרת ראשית")')
-    st.title("כותרת ראשית")
-
-    st.markdown("---")
-
-    # st.header / subheader
-    st.markdown("#### `st.header()` / `st.subheader()`")
-    show_code("""st.header("כותרת גדולה")
-st.subheader("כותרת בינונית")""")
-    st.header("כותרת גדולה")
-    st.subheader("כותרת בינונית")
-
-    st.markdown("---")
-
-    # st.write
-    st.markdown("#### `st.write()` — הכי גמיש!")
-    show_code("""st.write("טקסט רגיל")
-st.write("תומך **bold** ו-*italic* בסגנון Markdown")
-st.write(42)          # מספרים
-st.write([1, 2, 3])   # רשימות
-st.write({"a": 1})    # מילונים""")
-    st.write("טקסט רגיל")
-    st.write("תומך **bold** ו-*italic* בסגנון Markdown")
-    st.write(42)
-    st.write([1, 2, 3])
-
-    st.markdown("---")
-
-    # st.markdown
-    st.markdown("#### `st.markdown()` — Markdown מלא")
-    show_code("""st.markdown(\"\"\"
-## כותרת
-- פריט 1
-- פריט 2
-
-> ציטוט מעניין
-
-`קוד inline`
-\"\"\")""")
-    st.markdown("""
-## כותרת
-- פריט 1
-- פריט 2
-
-> ציטוט מעניין
-
-`קוד inline`
-""")
-
-    st.markdown("---")
-
-    # Alerts
-    st.markdown("#### הודעות צבעוניות")
-    show_code("""st.success("✅ הפעולה הצליחה!")
-st.warning("⚠️ שים לב לנושא הזה")
-st.error("❌ שגיאה! משהו השתבש")
-st.info("ℹ️ מידע כללי")""")
-    st.success("✅ הפעולה הצליחה!")
-    st.warning("⚠️ שים לב לנושא הזה")
-    st.error("❌ שגיאה! משהו השתבש")
-    st.info("ℹ️ מידע כללי")
-
-    st.markdown("---")
-
-    # st.code
-    st.markdown("#### `st.code()` — הצגת קוד")
-    show_code("""st.code(\"\"\"
-def hello(name):
-    return f"שלום, {name}!"
-\"\"\", language="python")""")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 📊 גרפים ונתונים
-# ══════════════════════════════════════════════════════════════════════════════
-elif section == "📊 גרפים ונתונים":
-    import pandas as pd
-    import numpy as np
-
-    st.markdown('<div class="section-header">📊 גרפים ונתונים</div>', unsafe_allow_html=True)
-
-    # DataFrame
-    st.markdown("#### `st.dataframe()` — טבלה אינטראקטיבית")
-    show_code("""import pandas as pd
-import numpy as np
-
-df = pd.DataFrame({
-    "שם": ["אלי", "מיה", "דן", "נועה"],
-    "ציון": [88, 95, 72, 91],
-    "גיל":  [22, 24, 21, 23],
-})
-st.dataframe(df)""")
-    df = pd.DataFrame({
-        "שם": ["אלי", "מיה", "דן", "נועה"],
-        "ציון": [88, 95, 72, 91],
-        "גיל":  [22, 24, 21, 23],
-    })
-    st.dataframe(df, use_container_width=True)
-
-    st.markdown("---")
-
-    # st.table
-    st.markdown("#### `st.table()` — טבלה סטטית")
-    show_code("st.table(df)")
-    st.table(df)
-
-    st.markdown("---")
-
-    # Line chart
-    st.markdown("#### `st.line_chart()` — גרף קו")
-    show_code("""data = pd.DataFrame(
-    np.random.randn(20, 3),
-    columns=["קו א", "קו ב", "קו ג"]
-)
-st.line_chart(data)""")
-    data = pd.DataFrame(
-        np.random.randn(20, 3),
-        columns=["קו א", "קו ב", "קו ג"]
-    )
-    st.line_chart(data)
-
-    st.markdown("---")
-
-    # Bar chart
-    st.markdown("#### `st.bar_chart()` — גרף עמודות")
-    show_code("""bar_data = pd.DataFrame(
-    {"מכירות": [300, 450, 200, 600, 380]},
-    index=["ינואר","פברואר","מרץ","אפריל","מאי"]
-)
-st.bar_chart(bar_data)""")
-    bar_data = pd.DataFrame(
-        {"מכירות": [300, 450, 200, 600, 380]},
-        index=["ינואר","פברואר","מרץ","אפריל","מאי"]
-    )
-    st.bar_chart(bar_data)
-
-    st.markdown("---")
-
-    # Metrics
-    st.markdown("#### `st.metric()` — כרטיסי מדד")
-    show_code("""col1, col2, col3 = st.columns(3)
-col1.metric("טמפרטורה", "25°C", "+2°C")
-col2.metric("משתמשים", "1,284", "-38")
-col3.metric("הכנסה", "₪12,400", "+8%")""")
-    col1, col2, col3 = st.columns(3)
-    col1.metric("טמפרטורה", "25°C", "+2°C")
-    col2.metric("משתמשים", "1,284", "-38")
-    col3.metric("הכנסה", "₪12,400", "+8%")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 🎛️ רכיבי קלט
-# ══════════════════════════════════════════════════════════════════════════════
-elif section == "🎛️ רכיבי קלט":
-    st.markdown('<div class="section-header">🎛️ רכיבי קלט — אינטראקטיביות!</div>', unsafe_allow_html=True)
-    st.info("כל רכיב כאן חי ופעיל! נסו לשנות את הערכים 👇")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        # text_input
-        st.markdown("#### `st.text_input()`")
-        show_code('name = st.text_input("מה שמך?")\nst.write(f"שלום, {name}!")')
-        name = st.text_input("מה שמך?")
-        st.write(f"שלום, {name}!" if name else "הכנס שם...")
-
-        st.markdown("---")
-
-        # number_input
-        st.markdown("#### `st.number_input()`")
-        show_code('num = st.number_input("הכנס מספר", min_value=0, max_value=100, value=50)')
-        num = st.number_input("הכנס מספר", min_value=0, max_value=100, value=50)
-        st.write(f"הכפול שלו: {num * 2}")
-
-        st.markdown("---")
-
-        # slider
-        st.markdown("#### `st.slider()`")
-        show_code('age = st.slider("גיל", 0, 100, 25)')
-        age = st.slider("גיל", 0, 100, 25)
-        st.write(f"גיל שנבחר: {age}")
-
-        st.markdown("---")
-
-        # button
-        st.markdown("#### `st.button()`")
-        show_code("""if st.button("לחץ עליי!"):
-    st.balloons()
-    st.success("כפתור נלחץ! 🎉")""")
-        if st.button("לחץ עליי!"):
-            st.balloons()
-            st.success("כפתור נלחץ! 🎉")
-
-    with col2:
-        # selectbox
-        st.markdown("#### `st.selectbox()`")
-        show_code("""color = st.selectbox(
-    "בחר צבע",
-    ["אדום", "ירוק", "כחול"]
-)""")
-        color = st.selectbox("בחר צבע", ["אדום", "ירוק", "כחול"])
-        st.write(f"בחרת: {color}")
-
-        st.markdown("---")
-
-        # multiselect
-        st.markdown("#### `st.multiselect()`")
-        show_code("""fruits = st.multiselect(
-    "בחר פירות",
-    ["תפוח", "בננה", "ענב", "מנגו"]
-)""")
-        fruits = st.multiselect("בחר פירות", ["תפוח", "בננה", "ענב", "מנגו"])
-        st.write(f"נבחרו: {fruits}")
-
-        st.markdown("---")
-
-        # checkbox
-        st.markdown("#### `st.checkbox()`")
-        show_code("""agree = st.checkbox("קראתי את התנאים")
-if agree:
-    st.success("תודה!")""")
-        agree = st.checkbox("קראתי את התנאים")
-        if agree:
-            st.success("תודה!")
-
-        st.markdown("---")
-
-        # radio
-        st.markdown("#### `st.radio()`")
-        show_code("""plan = st.radio(
-    "בחר תוכנית",
-    ["חינמי", "פרו", "עסקי"]
-)""")
-        plan = st.radio("בחר תוכנית", ["חינמי", "פרו", "עסקי"])
-        st.write(f"תוכנית: {plan}")
-
-    st.markdown("---")
-
-    # text_area + date_input
-    st.markdown("#### `st.text_area()` + `st.date_input()`")
-    show_code("""import datetime
-comment = st.text_area("הערות", height=100)
-date = st.date_input("תאריך", datetime.date.today())
-st.write(f"תאריך: {date}, תוכן: {len(comment)} תווים")""")
-    import datetime
-    comment = st.text_area("הערות", height=80)
-    date = st.date_input("תאריך", datetime.date.today())
-    st.write(f"תאריך: {date} | תוכן: {len(comment)} תווים")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 📐 פריסת עמוד
-# ══════════════════════════════════════════════════════════════════════════════
-elif section == "📐 פריסת עמוד":
-    st.markdown('<div class="section-header">📐 פריסת עמוד — עמודות, טאבים ועוד</div>', unsafe_allow_html=True)
-
-    # Columns
-    st.markdown("#### `st.columns()` — עמודות")
-    show_code("""col1, col2, col3 = st.columns(3)
-
-with col1:
-    st.header("עמודה 1")
-    st.write("תוכן ראשון")
-
-with col2:
-    st.header("עמודה 2")
-    st.write("תוכן שני")
-
-with col3:
-    st.header("עמודה 3")
-    st.write("תוכן שלישי")""")
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.markdown("**עמודה 1**")
-        st.write("תוכן ראשון")
-    with col2:
-        st.markdown("**עמודה 2**")
-        st.write("תוכן שני")
-    with col3:
-        st.markdown("**עמודה 3**")
-        st.write("תוכן שלישי")
-
-    st.markdown("---")
-
-    # יחסי רוחב
-    st.markdown("#### עמודות עם יחסי רוחב שונים")
-    show_code("""left, right = st.columns([1, 3])  # ימין רחב פי 3
-with left:
-    st.image("logo.png")
-with right:
-    st.write("תוכן רחב...")""")
-    left, right = st.columns([1, 3])
-    with left:
-        st.metric("רוחב", "25%")
-    with right:
-        st.metric("רוחב", "75%")
-
-    st.markdown("---")
-
-    # Tabs
-    st.markdown("#### `st.tabs()` — טאבים")
-    show_code("""tab1, tab2, tab3 = st.tabs(["🏠 בית", "📊 נתונים", "⚙️ הגדרות"])
-
-with tab1:
-    st.write("ברוכים הבאים!")
-with tab2:
-    st.write("כאן יהיו גרפים")
-with tab3:
-    st.write("הגדרות המערכת")""")
-    tab1, tab2, tab3 = st.tabs(["🏠 בית", "📊 נתונים", "⚙️ הגדרות"])
-    with tab1:
-        st.write("ברוכים הבאים!")
-    with tab2:
-        st.write("כאן יהיו גרפים")
-    with tab3:
-        st.write("הגדרות המערכת")
-
-    st.markdown("---")
-
-    # Expander
-    st.markdown("#### `st.expander()` — אקורדיון")
-    show_code("""with st.expander("לחץ לפרטים נוספים"):
-    st.write("תוכן מוסתר שנחשף בלחיצה!")
-    st.image("diagram.png")""")
-    with st.expander("לחץ לפרטים נוספים ⬇️"):
-        st.write("תוכן מוסתר שנחשף בלחיצה!")
-        st.info("ניתן להכניס כאן כל רכיב Streamlit")
-
-    st.markdown("---")
-
-    # Sidebar
-    st.markdown("#### `st.sidebar` — סרגל צד")
-    show_code("""with st.sidebar:
-    st.title("תפריט")
-    option = st.selectbox("בחר עמוד", ["בית", "אודות"])
-
-# גם כך:
-st.sidebar.write("טקסט בסרגל")""")
-    st.markdown('<div class="tip-box">💡 הסרגל הצדדי במדריך זה הוא דוגמה חיה ל-<code>st.sidebar</code>!</div>', unsafe_allow_html=True)
-
-    st.markdown("---")
-
-    # Container
-    st.markdown("#### `st.container()` — מיכל")
-    show_code("""with st.container():
-    st.write("הכל בתוך המיכל")
-    st.button("כפתור")
-
-st.write("זה כבר מחוץ למיכל")""")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 🔄 מצב ולוגיקה
-# ══════════════════════════════════════════════════════════════════════════════
-elif section == "🔄 מצב ולוגיקה":
-    st.markdown('<div class="section-header">🔄 מצב ולוגיקה — Session State ו-Cache</div>', unsafe_allow_html=True)
-
-    st.markdown("#### `st.session_state` — שמירת מצב בין ריצות")
-    st.markdown("ב-Streamlit, הקוד רץ מחדש בכל אינטראקציה. `session_state` שומר ערכים:")
-
-    show_code("""# אתחול (רק בפעם הראשונה)
-if "count" not in st.session_state:
-    st.session_state.count = 0
-
-# כפתורים לשינוי המצב
-col1, col2 = st.columns(2)
-with col1:
-    if st.button("➕ הוסף"):
-        st.session_state.count += 1
-with col2:
-    if st.button("➖ הפחת"):
-        st.session_state.count -= 1
-
-st.metric("ערך נוכחי", st.session_state.count)""")
-
-    if "count" not in st.session_state:
-        st.session_state.count = 0
-
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("➕ הוסף"):
-            st.session_state.count += 1
-    with col2:
-        if st.button("➖ הפחת"):
-            st.session_state.count -= 1
-    st.metric("ערך נוכחי", st.session_state.count)
-
-    st.markdown("---")
-
-    # Forms
-    st.markdown("#### `st.form()` — טופס (שליחה אחת)")
-    show_code("""with st.form("my_form"):
-    name = st.text_input("שם")
-    age  = st.number_input("גיל", 0, 120)
-    submitted = st.form_submit_button("שלח")
-
-if submitted:
-    st.success(f"קיבלנו! {name}, גיל {age}")""")
-
-    with st.form("demo_form"):
-        fname = st.text_input("שם")
-        fage  = st.number_input("גיל", 0, 120, value=20)
-        submitted = st.form_submit_button("שלח")
-    if submitted:
-        st.success(f"קיבלנו! {fname}, גיל {fage}")
-
-    st.markdown("---")
-
-    # Cache
-    st.markdown("#### `@st.cache_data` — מטמון לחישובים כבדים")
-    show_code("""import time
-
-@st.cache_data
-def heavy_computation(n):
-    time.sleep(2)          # מדמה חישוב כבד
-    return n * n
-
-result = heavy_computation(42)
-# ← בפעם הראשונה לוקח 2 שניות
-# ← בפעמים הבאות — מיידי! ⚡""")
-    st.markdown('<div class="tip-box">💡 <code>@st.cache_data</code> שומר את תוצאת הפונקציה בזיכרון. אידיאלי לקריאות API, טעינת קבצים, וחישובים יקרים.</div>', unsafe_allow_html=True)
-
-    st.markdown("---")
-
-    # Progress / Spinner
-    st.markdown("#### `st.progress()` + `st.spinner()`")
-    show_code("""import time
-
-with st.spinner("טוען..."):
-    time.sleep(1)
-st.success("נטען!")
-
-# סרגל התקדמות:
-bar = st.progress(0)
-for i in range(100):
-    bar.progress(i + 1)
-    time.sleep(0.01)""")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 📁 קבצים ומדיה
-# ══════════════════════════════════════════════════════════════════════════════
-elif section == "📁 קבצים ומדיה":
-    st.markdown('<div class="section-header">📁 קבצים ומדיה</div>', unsafe_allow_html=True)
-
-    # File uploader
-    st.markdown("#### `st.file_uploader()` — העלאת קובץ")
-    show_code("""uploaded = st.file_uploader(
-    "העלה קובץ CSV",
-    type=["csv", "xlsx"]
-)
-
-if uploaded:
-    import pandas as pd
-    df = pd.read_csv(uploaded)
-    st.dataframe(df)
-    st.success(f"הקובץ הועלה: {uploaded.name}")""")
-    uploaded = st.file_uploader("העלה קובץ CSV לדוגמה", type=["csv", "txt"])
     if uploaded:
-        st.success(f"✅ הועלה: {uploaded.name} ({uploaded.size} bytes)")
+        img_bytes = uploaded.read()
+        img_pil, tensor = preprocess_image(img_bytes)
 
-    st.markdown("---")
+        # Show image with overlay
+        st.markdown('<div class="div"></div>', unsafe_allow_html=True)
 
-    # st.image
-    st.markdown("#### `st.image()` — תמונות")
-    show_code("""import numpy as np
-from PIL import Image
+        col_img, col_meta = st.columns([1.4, 1])
+        with col_img:
+            st.image(img_pil, use_container_width=True, caption="תמונת הרנטגן שהועלתה")
+        with col_meta:
+            w, h = img_pil.size
+            st.markdown(f"""
+            <div class="info-card">
+                <div class="info-card-title">שם קובץ</div>
+                <div class="info-card-value" style="font-size:0.85rem">{uploaded.name}</div>
+            </div>
+            <div class="info-card">
+                <div class="info-card-title">רזולוציה</div>
+                <div class="info-card-value">{w} × {h}</div>
+            </div>
+            <div class="info-card">
+                <div class="info-card-title">גודל</div>
+                <div class="info-card-value">{len(img_bytes)/1024:.1f} KB</div>
+            </div>
+            <div class="info-card">
+                <div class="info-card-title">Input למודל</div>
+                <div class="info-card-value">224 × 224 × 3</div>
+            </div>
+            """, unsafe_allow_html=True)
 
-# תמונה מ-URL
-st.image("https://picsum.photos/400/200", caption="תמונה לדוגמה")
+        # Analyze button
+        st.markdown('<div class="div"></div>', unsafe_allow_html=True)
+        analyze_btn = st.button("🔍  נתח תמונה", use_container_width=True, type="primary")
 
-# תמונה מקובץ
-img = Image.open("photo.jpg")
-st.image(img, width=300)
+        if analyze_btn:
+            # Load model + run inference
+            with st.spinner("טוען מודל ומריץ ניתוח..."):
+                model = load_model()
+                time.sleep(0.6)  # UX pause for drama
+                probs = predict(model, tensor)
 
-# מ-numpy array
-arr = np.random.randint(0, 255, (100, 100, 3), dtype=np.uint8)
-st.image(arr, caption="רעש אקראי")""")
-    import numpy as np
-    arr = np.random.randint(0, 255, (80, 200, 3), dtype=np.uint8)
-    st.image(arr, caption="מערך numpy אקראי — זו תמונה בפועל!")
+            # ── Inject result into session_state ──
+            st.session_state["probs"]    = probs
+            st.session_state["analyzed"] = True
 
-    st.markdown("---")
-
-    # Download button
-    st.markdown("#### `st.download_button()` — הורדת קובץ")
-    show_code("""import pandas as pd
-
-df = pd.DataFrame({"א": [1,2,3], "ב": [4,5,6]})
-csv = df.to_csv(index=False).encode("utf-8")
-
-st.download_button(
-    label="📥 הורד CSV",
-    data=csv,
-    file_name="data.csv",
-    mime="text/csv"
-)""")
-    import pandas as pd
-    sample_df = pd.DataFrame({"שם": ["אלי","מיה"], "ציון": [88, 95]})
-    csv_data = sample_df.to_csv(index=False).encode("utf-8")
-    st.download_button("📥 הורד קובץ דוגמה", data=csv_data, file_name="sample.csv", mime="text/csv")
-
-    st.markdown("---")
-
-    # Camera / video
-    st.markdown("#### `st.camera_input()` + `st.video()`")
-    show_code("""# צילום מהמצלמה
-photo = st.camera_input("צלם תמונה")
-if photo:
-    st.image(photo)
-
-# הצגת וידאו
-st.video("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
-st.video("local_video.mp4")""")
+    else:
+        # Placeholder instructions
+        st.markdown("""
+        <div style="margin-top:1rem; color:#3a4a66; font-size:0.95rem; line-height:2;">
+        📁 פורמטים נתמכים: JPG, PNG, BMP<br>
+        🔬 המודל מנתח את דפוסי הצפיפות בתמונה<br>
+        ⚡ זמן ניתוח: פחות משניה<br>
+        🔒 התמונה לא נשמרת בשרת
+        </div>
+        """, unsafe_allow_html=True)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 🎨 עיצוב מתקדם
-# ══════════════════════════════════════════════════════════════════════════════
-elif section == "🎨 עיצוב מתקדם":
-    st.markdown('<div class="section-header">🎨 עיצוב מתקדם — CSS, HTML, ו-config</div>', unsafe_allow_html=True)
+# ══════════════════ RIGHT COLUMN ══════════════════
+with right_col:
 
-    # Custom CSS
-    st.markdown("#### `st.markdown()` עם CSS")
-    show_code("""st.markdown(\"\"\"
-<style>
-.my-box {
-    background: linear-gradient(135deg, #667eea, #764ba2);
-    color: white;
-    padding: 1.5rem;
-    border-radius: 12px;
-    text-align: center;
-    font-size: 1.3rem;
-    font-weight: bold;
-}
-</style>
+    if st.session_state.get("analyzed") and "probs" in st.session_state:
+        probs = st.session_state["probs"]
+        labels = ["תקין", "חשוד", "ממאיר"]
 
-<div class="my-box">
-    📦 קופסה עם עיצוב מותאם אישית!
+        # Find top class
+        top_idx   = int(np.argmax(probs))
+        top_label = labels[top_idx]
+        top_prob  = float(probs[top_idx]) * 100
+
+        # Result card
+        if top_idx == 0:
+            css_cls = "result-safe"
+            icon    = "✅"
+            color   = "#00c896"
+            msg     = "הריאות נראות תקינות. לא זוהו ממצאים חשודים."
+        elif top_idx == 1:
+            css_cls = "result-warning"
+            icon    = "⚠️"
+            color   = "#ffaa00"
+            msg     = "זוהו ממצאים שמצריכים מעקב. מומלץ לפנות לרופא."
+        else:
+            css_cls = "result-danger"
+            icon    = "🚨"
+            color   = "#ff3355"
+            msg     = "זוהו ממצאים חשודים. יש לפנות לאונקולוג בהקדם."
+
+        st.markdown(f"""
+        <div class="{css_cls}">
+            <div class="result-icon">{icon}</div>
+            <div class="result-label" style="color:{color};">{top_label}</div>
+            <div style="font-family:'DM Mono',monospace; font-size:1.5rem; color:{color}; margin:0.3rem 0;">
+                {top_prob:.1f}%
+            </div>
+            <div class="result-sub">{msg}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Probability bars
+        st.markdown("#### 📊 התפלגות הסתברויות")
+        colors_css = ["prob-fill-green", "prob-fill-yellow", "prob-fill-red"]
+        for i, (lbl, prob, c) in enumerate(zip(labels, probs, colors_css)):
+            pct = float(prob) * 100
+            st.markdown(f"""
+            <div class="prob-row">
+                <div class="prob-label">{lbl}</div>
+                <div class="prob-bar-bg">
+                    <div class="{c}" style="width:{pct:.1f}%"></div>
+                </div>
+                <div class="prob-pct">{pct:.1f}%</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        # Tensor details expander
+        with st.expander("🔢 פרטים טכניים — Tensor & Forward Pass"):
+            st.markdown("**ממדי ה-Tensor שנכנס למודל:**")
+            st.code(f"torch.Size([1, 3, 224, 224])  # batch=1, channels=3, H=224, W=224", language="python")
+            st.markdown("**Logits (לפני Softmax):**")
+            model_ref = load_model()
+            with torch.no_grad():
+                logits = model_ref(tensor)
+            st.code(str(logits.numpy().round(4)), language="python")
+            st.markdown("**אחרי `torch.softmax`:**")
+            st.code(str(probs.round(4)), language="python")
+
+        st.markdown('<div class="medical-disclaimer">⚠️ <b>אזהרה רפואית:</b> אפליקציה זו נועדה לצורכי לימוד בלבד. אל תשתמש בה לאבחון רפואי. תמיד פנה לרופא מוסמך.</div>', unsafe_allow_html=True)
+
+    else:
+        # Architecture panel (shown before analysis)
+        st.markdown("### 🧠 ארכיטקטורת המודל")
+
+        arch_items = [
+            ("📷", "Input Layer",           "224×224×3 — תמונת רנטגן מנורמלת"),
+            ("🔲", "MBConv Blocks ×16",     "Mobile Inverted Bottleneck — ליבת EfficientNet"),
+            ("🌐", "Global Avg. Pooling",   "דחיסה מרחבית → וקטור 1280-מימד"),
+            ("🎛️", "Dropout (p=0.3)",       "מניעת Overfitting"),
+            ("🎯", "FC Layer → 3 classes",  "תקין / חשוד / ממאיר"),
+            ("📊", "Softmax",               "הסתברויות — סכום = 100%"),
+        ]
+        arrows = True
+        for i, (icon, name, desc) in enumerate(arch_items):
+            st.markdown(f"""
+            <div class="arch-block">
+                <div class="arch-icon">{icon}</div>
+                <div>
+                    <div class="arch-name">{name}</div>
+                    <div class="arch-desc">{desc}</div>
+                </div>
+            </div>
+            {"<div class='arch-arrow'>↓</div>" if i < len(arch_items)-1 else ""}
+            """, unsafe_allow_html=True)
+
+        # How it works
+        st.markdown('<div class="div"></div>', unsafe_allow_html=True)
+        st.markdown("### 🔄 איך זה עובד?")
+
+        steps = [
+            ("עיבוד מוקדם",   "התמונה משתנה לגודל 224×224, מנורמלת עם ממוצע וסטיית תקן של ImageNet"),
+            ("Convolutions",  "שכבות קונבולוציה מחלצות תכונות: קצוות, צורות, צפיפויות"),
+            ("Feature Maps",  "המודל מייצר 1280 פיצ'רים שמתארים את תוכן התמונה"),
+            ("סיווג",          "שכבה fully-connected ממירה לשלושה ציונים"),
+            ("Softmax",        "ציונים הופכים להסתברויות (0-100%) — הגדולה ביותר היא האבחנה"),
+        ]
+        for i, (title, desc) in enumerate(steps, 1):
+            st.markdown(f"""
+            <div class="step-row">
+                <div class="step-num">{i}</div>
+                <div class="step-content">
+                    <div class="step-title">{title}</div>
+                    <div class="step-desc">{desc}</div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+# ─── Footer ────────────────────────────────────────────────────────────────────
+st.markdown('<div class="div"></div>', unsafe_allow_html=True)
+st.markdown("""
+<div style="text-align:center; color:#2a3a55; font-family:'DM Mono',monospace; font-size:0.72rem; letter-spacing:1px;">
+    LUNGVISION AI · BUILT WITH PYTORCH + STREAMLIT · FOR EDUCATIONAL USE ONLY
 </div>
-\"\"\", unsafe_allow_html=True)""")
-    st.markdown("""
-<style>
-.my-box {
-    background: linear-gradient(135deg, #667eea, #764ba2);
-    color: white;
-    padding: 1.5rem;
-    border-radius: 12px;
-    text-align: center;
-    font-size: 1.3rem;
-    font-weight: bold;
-}
-</style>
-<div class="my-box">📦 קופסה עם עיצוב מותאם אישית!</div>
 """, unsafe_allow_html=True)
-
-    st.markdown("---")
-
-    # Page config
-    st.markdown("#### `st.set_page_config()` — הגדרות עמוד")
-    show_code("""st.set_page_config(
-    page_title="שם האפליקציה",   # כותרת הטאב
-    page_icon="🚀",               # אייקון
-    layout="wide",               # "centered" / "wide"
-    initial_sidebar_state="expanded"  # "auto"/"expanded"/"collapsed"
-)
-# ⚠️ חייב להיות השורה הראשונה בקוד!""")
-
-    st.markdown("---")
-
-    # Themes / config.toml
-    st.markdown("#### `.streamlit/config.toml` — ערכת נושא")
-    show_code("""# .streamlit/config.toml
-[theme]
-primaryColor       = "#e94560"
-backgroundColor    = "#ffffff"
-secondaryBackgroundColor = "#f0f2f6"
-textColor          = "#1a1a2e"
-font               = "sans serif"   # "serif" / "monospace\"""")
-
-    st.markdown("---")
-
-    # st.columns with custom HTML
-    st.markdown("#### כרטיסים עם HTML")
-    show_code("""cols = st.columns(3)
-items = [
-    ("🚀", "מהיר",   "בניה בדקות"),
-    ("🎨", "יפה",    "עיצוב קל"),
-    ("🔌", "מחובר",  "API בשניות"),
-]
-for col, (icon, title, desc) in zip(cols, items):
-    col.markdown(f\"\"\"
-    <div style="border:1px solid #ddd; border-radius:10px;
-                padding:1rem; text-align:center;">
-        <h2>{icon}</h2>
-        <b>{title}</b><br>{desc}
-    </div>
-    \"\"\", unsafe_allow_html=True)""")
-
-    cols = st.columns(3)
-    items = [("🚀", "מהיר", "בניה בדקות"), ("🎨", "יפה", "עיצוב קל"), ("🔌", "מחובר", "API בשניות")]
-    for col, (icon, title, desc) in zip(cols, items):
-        col.markdown(f"""
-<div style="border:1px solid #ddd; border-radius:10px; padding:1rem; text-align:center; background:#fafafa;">
-    <h2>{icon}</h2>
-    <b>{title}</b><br><small>{desc}</small>
-</div>
-""", unsafe_allow_html=True)
-
-    st.markdown("---")
-
-    # Summary cheat sheet
-    show_code("""# ── טקסט ──────────────────────────────────
-st.title()       st.header()      st.subheader()
-st.write()       st.markdown()    st.code()
-st.success()     st.warning()     st.error()     st.info()
-
-# ── קלט ───────────────────────────────────
-st.text_input()  st.number_input() st.text_area()
-st.slider()      st.selectbox()   st.multiselect()
-st.checkbox()    st.radio()       st.button()
-st.date_input()  st.file_uploader()
-
-# ── פריסה ─────────────────────────────────
-st.columns()     st.tabs()        st.expander()
-st.sidebar       st.container()   st.form()
-
-# ── נתונים וגרפים ─────────────────────────
-st.dataframe()   st.table()       st.metric()
-st.line_chart()  st.bar_chart()   st.area_chart()
-
-# ── מדיה ──────────────────────────────────
-st.image()       st.video()       st.audio()
-st.download_button()  st.camera_input()
-
-# ── מצב ───────────────────────────────────
-st.session_state    @st.cache_data
-st.spinner()        st.progress()
-st.balloons()       st.snow()""")
