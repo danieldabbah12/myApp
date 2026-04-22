@@ -319,7 +319,7 @@ else:
     prob_healthy = float(probs[0])   # [תקין, חשוד, ממאיר]
     prob_concern = float(probs[1]) + float(probs[2])  # חשוד + ממאיר
 
-    is_healthy = prob_healthy > 0.55
+    is_healthy = prob_healthy > 0.45
 
     if is_healthy:
         st.markdown(f"""
@@ -345,8 +345,8 @@ else:
         """, unsafe_allow_html=True)
 
     # אחוזי ביטחון
-    pct_h = (prob_healthy  * 100)-10
-    pct_c = (prob_concern  * 100) +10
+    pct_h = (prob_healthy  * 100)
+    pct_c = (prob_concern  * 100) 
     st.markdown(f"""
     <div class="conf-wrap">
         <div class="conf-title">רמת הביטחון של הניתוח</div>
