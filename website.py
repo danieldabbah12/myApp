@@ -1,3 +1,3 @@
 import streamlit as st
 
-st.title("האתר הטוב ביותר")
+st.write("האתר הטוב ביותר")
