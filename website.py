@@ -773,7 +773,6 @@ for col, (icon, title, desc) in zip(cols, items):
     st.markdown("---")
 
     # Summary cheat sheet
-    st.markdown("### 📋 דף-רמאות מהיר")
     show_code("""# ── טקסט ──────────────────────────────────
 st.title()       st.header()      st.subheader()
 st.write()       st.markdown()    st.code()
