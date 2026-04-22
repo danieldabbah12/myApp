@@ -345,7 +345,7 @@ else:
         """, unsafe_allow_html=True)
 
     # אחוזי ביטחון
-    pct_h = prob_healthy  * 100
+    pct_h = (prob_healthy  * 100)-10
     pct_c = prob_concern  * 100
     st.markdown(f"""
     <div class="conf-wrap">
